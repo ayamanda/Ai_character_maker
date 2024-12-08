@@ -9,8 +9,6 @@ import {
   serverTimestamp,
   getDocs,
   deleteDoc,
-  QuerySnapshot,
-  DocumentData,
 } from 'firebase/firestore';
 import { useMediaQuery } from 'react-responsive';
 import { useAuthState } from 'react-firebase-hooks/auth';
@@ -33,6 +31,7 @@ import {
   Info,
   Settings,
   Zap,
+  X,
 } from 'lucide-react';
 import ChatInput from './ChatInput';
 import { CharacterData, Message } from '@/types';
@@ -64,6 +63,7 @@ function Chat() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [showCharacterForm, setShowCharacterForm] = useState(false);
+  const [showAlert, setShowAlert] = useState(false); // State to control the alert visibility
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const isMobile = useMediaQuery({ maxWidth: 767 });
@@ -75,8 +75,12 @@ function Chat() {
   }, []);
 
   useEffect(() => {
-    setCharacterData(storedCharacterData);
-  }, [storedCharacterData]);
+    if (user && !storedCharacterData) {
+      setShowCharacterForm(true);
+    } else {
+      setCharacterData(storedCharacterData);
+    }
+  }, [user, storedCharacterData]);
 
   // Fetch messages from Firestore
   useEffect(() => {
@@ -159,7 +163,20 @@ function Chat() {
 
   // Function to handle sending a message
   const handleSendMessage = async (messageText: string) => {
-    if (!user || !characterData) return;
+    if (!user) return;
+
+    if (!characterData) {
+      setShowAlert(true); // Show the alert
+      setShowCharacterForm(true); // Open the character form
+
+      // Set a timeout to hide the alert after 5 seconds (adjust as needed)
+      const timeoutId = setTimeout(() => {
+        setShowAlert(false);
+      }, 5000);
+
+      // Cleanup function to clear the timeout if the component unmounts or the user creates a character before the timeout expires
+      return () => clearTimeout(timeoutId);
+    }
 
     const newMessage: Omit<Message, 'id'> = {
       text: messageText,
@@ -214,6 +231,7 @@ function Chat() {
   const handleCharacterUpdate = (data: CharacterData) => {
     setCharacterData(data);
     setShowCharacterForm(false);
+    setShowAlert(false); // Hide the alert after creating a character
   };
 
   // Function to handle refresh character
@@ -302,6 +320,28 @@ function Chat() {
         <Alert variant="destructive" className="m-2">
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Alert for creating a character */}
+      
+        {showAlert && (
+        <Alert variant="destructive" className="m-2 relative">
+          <div className="absolute top-2 right-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowAlert(false)}
+              className="h-6 w-6 p-1 rounded-full"
+            >
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </Button>
+          </div>
+          <AlertTitle>Character Required</AlertTitle>
+          <AlertDescription>
+            Please create a character before sending messages.
+          </AlertDescription>
         </Alert>
       )}
 
@@ -521,6 +561,27 @@ function Chat() {
         <Alert variant="destructive" className="m-2">
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Alert for creating a character */}
+        {showAlert && (
+        <Alert variant="destructive" className="m-2 relative">
+          <div className="absolute top-2 right-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowAlert(false)}
+              className="h-6 w-6 p-1 rounded-full"
+            >
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </Button>
+          </div>
+          <AlertTitle>Character Required</AlertTitle>
+          <AlertDescription>
+            Please create a character before sending messages.
+          </AlertDescription>
         </Alert>
       )}
 
