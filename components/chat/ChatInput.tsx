@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Send } from "lucide-react";
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
@@ -29,9 +30,7 @@ function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
           }
         }}
       />
-      <Button onClick={handleSend} disabled={isLoading}>
-        Send
-      </Button>
+      <Button onClick={handleSend} disabled={isLoading}><Send /></Button>
     </div>
   );
 }

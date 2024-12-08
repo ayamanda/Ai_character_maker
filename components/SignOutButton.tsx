@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
+import { LogOut } from "lucide-react";
 
 const SignOutButton = () => {
   const router = useRouter();
@@ -17,7 +18,7 @@ const SignOutButton = () => {
     }
   };
 
-  return <Button onClick={handleSignOut}>Sign Out</Button>;
+  return <Button onClick={handleSignOut}><LogOut/> Sign Out</Button>;
 };
 
 export default SignOutButton;

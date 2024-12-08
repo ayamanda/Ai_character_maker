@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useRouter } from 'next/navigation';
+import { Link } from 'lucide-react';
 
 function SignInForm() {
   const [email, setEmail] = useState('');
@@ -77,11 +78,17 @@ function SignInForm() {
           </Button>
           <Button
             variant="outline"
-            className="w-full"
+            className="w-full mb-2"
             onClick={handleGoogleSignIn}
           >
             Sign In with Google
           </Button>
+          <div className="text-center text-sm text-gray-500">
+            Don't have an account?{' '}
+            <a href="/signup" className="text-blue-500 underline">
+              Sign Up
+            </a>
+          </div>
         </CardFooter>
       </Card>
     </div>

@@ -3,7 +3,7 @@ import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import SignOutButton from '@/components/SignOutButton';
+
 
 export default function ChatLayout({
   children,
@@ -25,9 +25,6 @@ export default function ChatLayout({
 
   return (
     <>
-      <div className="flex justify-end p-4">
-        <SignOutButton />
-      </div>
       {children}
     </>
   );

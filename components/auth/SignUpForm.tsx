@@ -61,10 +61,16 @@ function SignUpForm() {
           </form>
           {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
         </CardContent>
-        <CardFooter>
+        <CardFooter className="flex flex-col">
           <Button className="w-full" onClick={handleSignUp}>
             Sign Up
           </Button>
+          <div className="text-center text-sm text-gray-500">
+            have an account?{' '}
+            <a href="/signin" className="text-blue-500 underline">
+              Sign In
+            </a>
+          </div>
         </CardFooter>
       </Card>
     </div>
