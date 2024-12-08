@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
 
 const client = new Groq({
-  apiKey: process.env.NEXT_PUBLIC_GROQ_API_KEY || '', // Or throw an error if the key is missing
+  apiKey: process.env.GROQ_API_KEY || '', // Or throw an error if the key is missing
 });
 
 export async function POST(req: NextRequest) {
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
     const chatCompletion = await client.chat.completions.create({
       messages: chatMessages,
-      model: 'llama-3.1-8b', // Or your preferred model
+      model: 'llama-3.1-8b-instant', // Or your preferred model
       temperature: 0.7, // Adjust as needed
       max_tokens: 256, // Adjust as needed
     });
