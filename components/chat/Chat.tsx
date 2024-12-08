@@ -17,22 +17,32 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from "@/components/ui/button";
 import { Badge } from '@/components/ui/badge';
+import { 
+    Briefcase, 
+    RefreshCcw, 
+    Trash2, 
+    UserCog, 
+    Info, 
+    Settings, 
+    Zap 
+} from 'lucide-react';
 import ChatInput from './ChatInput';
 import { CharacterData, Message } from '@/types';
 import { useRouter } from 'next/navigation';
-
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 function Chat() {
     const [user] = useAuthState(auth);
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
     const [characterData, setCharacterData] = useState<CharacterData | null>(null);
     const router = useRouter();
-    const [initialLoad, setInitialLoad] = useState(true); // track initial load
-
-
+    const [initialLoad, setInitialLoad] = useState(true);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
 
     useEffect(() => {
         const storedCharacterData = localStorage.getItem('characterData');
@@ -44,7 +54,7 @@ function Chat() {
     useEffect(() => {
         if (!user) return;
         const messagesRef = collection(db, `users/${user.uid}/messages`);
-        const q = query(messagesRef, orderBy('createdAt')); //Removed limit to show all messages
+        const q = query(messagesRef, orderBy('createdAt'));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedMessages: Message[] = snapshot.docs.map((doc) => ({
@@ -53,18 +63,13 @@ function Chat() {
             } as Message));
             setMessages(fetchedMessages);
             setError(null);
-            setInitialLoad(false); //Set initial load to false after first load
+            setInitialLoad(false);
         }, (err) => {
             console.error("Error fetching messages:", err);
             setError(err.message);
         });
         return () => unsubscribe();
     }, [user]);
-
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
-
 
     const getAIResponse = async (userMessage: string) => {
         if (!characterData || !user) {
@@ -101,7 +106,6 @@ function Chat() {
 
             const messagesRef = collection(db, `users/${user.uid}/messages`);
             await addDoc(messagesRef, newMessage);
-
 
         } catch (error: any) {
             console.error('Error fetching AI response:', error);
@@ -144,10 +148,12 @@ function Chat() {
             await deleteDoc(doc.ref);
         });
         setMessages([]);
+        setIsMobileMenuOpen(false);
     };
 
     const handleModifyCharacter = () => {
         router.push('/');
+        setIsMobileMenuOpen(false);
     };
 
     const handleRefresh = () => {
@@ -157,50 +163,148 @@ function Chat() {
         } else {
             setError("Character data not found.");
         }
+        setIsMobileMenuOpen(false);
     }
 
     return (
-        <div className="flex flex-col h-full">
-            <div className="flex-1 overflow-auto p-4 space-y-4">
-                {error && (
-                    <Alert variant="destructive">
-                        <AlertTitle>Error</AlertTitle>
-                        <AlertDescription>{error}</AlertDescription>
-                    </Alert>
-                )}
+        <div className="flex flex-col h-screen  max-h-screen overflow-hidden">
+            {/* Desktop Actions in Top Left */}
+            <div className="hidden md:flex absolute top-4 left-4 space-x-2 items-center z-20 bg-background/50 backdrop-blur-md rounded-lg p-1 border shadow-sm">
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={handleRefresh}
+                                className="hover:bg-accent/50 transition-colors"
+                            >
+                                <RefreshCcw className="h-5 w-5 text-muted-foreground" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                            <p>Refresh Character</p>
+                        </TooltipContent>
+                    </Tooltip>
+                    
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={handleClearMessages}
+                                className="hover:bg-destructive/10 hover:text-destructive transition-colors"
+                            >
+                                <Trash2 className="h-5 w-5 text-muted-foreground" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                            <p>Clear Messages</p>
+                        </TooltipContent>
+                    </Tooltip>
+                    
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={handleModifyCharacter}
+                                className="hover:bg-accent/50 transition-colors"
+                            >
+                                <UserCog className="h-5 w-5 text-muted-foreground" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                            <p>Modify Character</p>
+                        </TooltipContent>
+                    </Tooltip>
+                    
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={() => setIsInfoModalOpen(true)}
+                                className="hover:bg-accent/50 transition-colors"
+                            >
+                                <Info className="h-5 w-5 text-muted-foreground" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                            <p>Character Info</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            </div>
 
-                {characterData && (
-                    <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md p-4">
-                        <Badge variant="secondary">
-                            Chatting with: {characterData.name} ({characterData.profession})
+            {/* Character Info Header */}
+            {characterData && (
+                <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md p-3 flex items-center justify-between shadow-sm">
+                    <div className="flex items-center space-x-2">
+                        <Briefcase className="h-5 w-5 text-muted-foreground" />
+                        <Badge variant="secondary" className="truncate max-w-[200px]">
+                            {characterData.name} ({characterData.profession})
                         </Badge>
                     </div>
-                )}
-                {initialLoad && <p>Loading...</p>} {!initialLoad && messages.map((msg) => (
-                    <div key={msg.id} className={`flex items-start gap-2 ${msg.uid === user?.uid ? 'justify-end' : 'justify-start'}`}>
-                        {msg.uid !== user?.uid && (
-                            <Avatar>
-                                <AvatarImage src={msg.photoURL || ''} alt={msg.displayName || ''} />
-                                <AvatarFallback>{msg.displayName ? msg.displayName.slice(0, 2) : 'AI'}</AvatarFallback>
-                            </Avatar>
-                        )}
-                        <div className={`p-3 rounded-lg ${msg.uid === user?.uid ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}>
-                            {msg.text}
-                        </div>
-                        {msg.uid === user?.uid && (
-                            <Avatar>
-                                <AvatarImage src={user?.photoURL || ''} alt={user?.displayName || ''} />
-                                <AvatarFallback>{user?.displayName ? user.displayName.slice(0, 2) : 'U'}</AvatarFallback>
-                            </Avatar>
-                        )}
+                    
+                    {/* Mobile Menu Toggle */}
+                    <div className="md:hidden">
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                        >
+                            <UserCog className="h-5 w-5" />
+                        </Button>
                     </div>
-                ))}
+                </div>
+            )}
 
+            {/* Error Alert */}
+            {error && (
+                <Alert variant="destructive" className="m-2">
+                    <AlertTitle>Error</AlertTitle>
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
+            )}
+
+            {/* Messages Area */}
+            <ScrollArea className="flex-1 p-4 space-y-4 overflow-y-auto">
+                {initialLoad ? (
+                    <p className="text-center text-muted-foreground">Loading messages...</p>
+                ) : messages.length === 0 ? (
+                    <div className="text-center text-muted-foreground">
+                        No messages yet. Start a conversation!
+                    </div>
+                ) : (
+                    messages.map((msg) => (
+                        <div 
+                            key={msg.id} 
+                            className={`flex items-start gap-2 mb-4 ${msg.uid === user?.uid ? 'flex-row-reverse' : ''}`}
+                        >
+                            <Avatar className="h-8 w-8">
+                                <AvatarImage src={msg.photoURL || ''} alt={msg.displayName || ''} />
+                                <AvatarFallback>
+                                    {msg.uid === 'ai' ? 'AI' : msg.displayName?.slice(0, 2) || 'U'}
+                                </AvatarFallback>
+                            </Avatar>
+                            <div 
+                                className={`
+                                    p-3 rounded-lg max-w-[80%]
+                                    ${msg.uid === user?.uid 
+                                        ? 'bg-blue-500 text-white ml-auto' 
+                                        : 'bg-gray-100 text-black mr-auto'}
+                                `}
+                            >
+                                {msg.text}
+                            </div>
+                        </div>
+                    ))
+                )}
 
                 {isLoading && (
                     <div className="flex items-start gap-2 animate-pulse">
                         <Avatar>
-                            <AvatarImage src="" alt="AI" />
                             <AvatarFallback>AI</AvatarFallback>
                         </Avatar>
                         <div className="bg-gray-200 p-3 rounded-lg">
@@ -208,16 +312,82 @@ function Chat() {
                         </div>
                     </div>
                 )}
-                <div ref={messagesEndRef} />
+            </ScrollArea>
+
+            {/* Chat Input */}
+            <div className="p-4 border-t flex items-center space-x-2">
+                <ChatInput 
+                    onSendMessage={handleSendMessage} 
+                    isLoading={isLoading} 
+                />
             </div>
-            <div className="p-4 border-t flex justify-between items-center">
-                <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
-                <div className="flex gap-2">
-                    <Button onClick={handleClearMessages}>Clear Messages</Button>
-                    <Button onClick={handleModifyCharacter}>Modify Character</Button>
-                    <Button onClick={handleRefresh}>Refresh</Button>
-                </div>
-            </div>
+
+            {/* Mobile Actions Dialog */}
+            <Dialog open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Chat Actions</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <Button 
+                            onClick={handleRefresh} 
+                            className="w-full"
+                        >
+                            <RefreshCcw className="mr-2 h-5 w-5" /> Refresh Character
+                        </Button>
+                        <Button 
+                            variant="destructive" 
+                            onClick={handleClearMessages} 
+                            className="w-full"
+                        >
+                            <Trash2 className="mr-2 h-5 w-5" /> Clear Messages
+                        </Button>
+                        <Button 
+                            variant="secondary" 
+                            onClick={handleModifyCharacter} 
+                            className="w-full"
+                        >
+                            <UserCog className="mr-2 h-5 w-5" /> Modify Character
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Character Info Modal */}
+            <Dialog open={isInfoModalOpen} onOpenChange={setIsInfoModalOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Character Details</DialogTitle>
+                    </DialogHeader>
+                    {characterData && (
+                        <div className="grid gap-4 py-4">
+                            <div className="flex items-center gap-4">
+                                <Zap className="h-6 w-6 text-yellow-500" />
+                                <div>
+                                    <p className="font-semibold">Name</p>
+                                    <p className="text-muted-foreground">{characterData.name}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <Settings className="h-6 w-6 text-blue-500" />
+                                <div>
+                                    <p className="font-semibold">Profession</p>
+                                    <p className="text-muted-foreground">{characterData.profession}</p>
+                                </div>
+                            </div>
+                            {characterData.description && (
+                                <div className="flex items-start gap-4">
+                                    <Info className="h-6 w-6 text-green-500 mt-1" />
+                                    <div>
+                                        <p className="font-semibold">Description</p>
+                                        <p className="text-muted-foreground">{characterData.description}</p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
