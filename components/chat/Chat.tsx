@@ -5,13 +5,9 @@ import {
     addDoc,
     query,
     orderBy,
-    limit,
     onSnapshot,
     serverTimestamp,
     getDocs,
-    doc,
-    getDoc,
-    updateDoc,
     deleteDoc
 } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
@@ -176,7 +172,7 @@ function Chat() {
                 {characterData && (
                     <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md p-4">
                         <Badge variant="secondary">
-                            Chatting as: {characterData.name} ({characterData.profession})
+                            Chatting with: {characterData.name} ({characterData.profession})
                         </Badge>
                     </div>
                 )}

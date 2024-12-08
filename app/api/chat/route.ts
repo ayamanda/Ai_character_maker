@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
     const chatCompletion = await client.chat.completions.create({
       messages: chatMessages,
-      model: 'llama-3.1-8b-instant', // Or your preferred model
+      model: 'llama-3.1-8b', // Or your preferred model
       temperature: 0.7, // Adjust as needed
       max_tokens: 256, // Adjust as needed
     });
