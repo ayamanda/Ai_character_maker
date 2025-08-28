@@ -32,6 +32,7 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import ChatInput from '@/components/chat/ChatInput';
+import MessageContent from '@/components/chat/MessageContent';
 import { cn } from '@/lib/utils';
 
 interface ChatTabProps {
@@ -53,7 +54,7 @@ export default function ChatTab({
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const historyTimeoutRef = useRef<NodeJS.Timeout>();
+  const historyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isDesktop = useMediaQuery({ minWidth: 1024 });
 
   // Load chat history for selected character
@@ -157,8 +158,9 @@ export default function ChatTab({
     }
   };
 
-  const getAIResponse = async (userMessage: string) => {
-    if (!selectedCharacter || !user || !currentSessionId) return;
+  const getAIResponse = async (userMessage: string, sessionId?: string) => {
+    const targetSessionId = sessionId || currentSessionId;
+    if (!selectedCharacter || !user || !targetSessionId) return;
 
     setIsLoading(true);
     let streamingMessageRef: any = null;
@@ -188,7 +190,7 @@ export default function ChatTab({
         character: true,
       };
 
-      const messagesRef = collection(db, `users/${user.uid}/chatSessions/${currentSessionId}/messages`);
+      const messagesRef = collection(db, `users/${user.uid}/chatSessions/${targetSessionId}/messages`);
       streamingMessageRef = await addDoc(messagesRef, initialMessage);
 
       const reader = response.body?.getReader();
@@ -231,7 +233,7 @@ export default function ChatTab({
         accumulatedText = fallbackText;
       }
 
-      await updateSessionLastMessage(currentSessionId, accumulatedText.slice(0, 100));
+      await updateSessionLastMessage(targetSessionId, accumulatedText.slice(0, 100));
     } catch (error: any) {
       console.error('Error fetching AI response:', error);
       if (streamingMessageRef && accumulatedText === '') {
@@ -247,7 +249,7 @@ export default function ChatTab({
         };
 
         try {
-          const messagesRef = collection(db, `users/${user.uid}/chatSessions/${currentSessionId}/messages`);
+          const messagesRef = collection(db, `users/${user.uid}/chatSessions/${targetSessionId}/messages`);
           await addDoc(messagesRef, errorMessage);
         } catch (e) {
           console.error('Error adding error message:', e);
@@ -268,11 +270,13 @@ export default function ChatTab({
     setShowHistoryPanel(false);
 
     let sessionId = currentSessionId;
+    let isNewSession = false;
 
     // Create new session if none exists
     if (!sessionId) {
       sessionId = await createNewSession(selectedCharacter);
       if (!sessionId) return;
+      isNewSession = true;
       setCurrentSessionId(sessionId);
     }
 
@@ -289,7 +293,8 @@ export default function ChatTab({
       const messagesRef = collection(db, `users/${user.uid}/chatSessions/${sessionId}/messages`);
       await addDoc(messagesRef, newMessage);
       await updateSessionLastMessage(sessionId, messageText.slice(0, 100));
-      await getAIResponse(messageText);
+      
+      await getAIResponse(messageText, sessionId);
     } catch (error: any) {
       console.error('Error adding message:', error);
     }
@@ -358,7 +363,10 @@ export default function ChatTab({
             ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-br-md"
             : "bg-card text-card-foreground rounded-bl-md hover:shadow-md"
         )}>
-          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.text}</p>
+          <MessageContent
+            content={msg.text}
+            isUser={msg.uid === user?.uid}
+          />
         </div>
       </div>
     </div>

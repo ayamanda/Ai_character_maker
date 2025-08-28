@@ -44,9 +44,10 @@ import {
 interface CharacterFormProps {
   character?: CharacterData | null;
   onClose: () => void;
+  onCharacterSubmit?: (data: CharacterData) => void;
 }
 
-function CharacterForm({ character, onClose }: CharacterFormProps) {
+function CharacterForm({ character, onClose, onCharacterSubmit }: CharacterFormProps) {
   const [user] = useAuthState(auth);
   const [name, setName] = useState('');
   const [age, setAge] = useState<number>(25);
@@ -118,6 +119,14 @@ function CharacterForm({ character, onClose }: CharacterFormProps) {
         // Create new character
         const charactersRef = collection(db, `users/${user.uid}/characters`);
         await addDoc(charactersRef, characterData);
+      }
+      
+      // Store character data in localStorage for immediate use
+      localStorage.setItem('characterData', JSON.stringify(characterData));
+      
+      // Call the callback if provided
+      if (onCharacterSubmit) {
+        onCharacterSubmit(characterData);
       }
       
       onClose();
@@ -198,17 +207,16 @@ function CharacterForm({ character, onClose }: CharacterFormProps) {
                 onChange={(e) => {
                   const value = e.target.value;
                   if (value === '') {
-                    setAge(1);
+                    setAge(0);
                   } else {
                     const numValue = parseInt(value, 10);
-                    if (!isNaN(numValue) && numValue >= 1 && numValue <= 100) {
+                    if (!isNaN(numValue) && numValue >= 0) {
                       setAge(numValue);
                     }
                   }
                 }}
                 className="border-border focus:border-blue-500 transition-all duration-200 focus:shadow-sm h-11"
-                min="1"
-                max="100"
+                min="0"
               />
             </div>
           </div>

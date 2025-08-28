@@ -81,43 +81,7 @@ export default function CharacterSelector({
     return () => unsubscribe();
   }, [user]);
 
-  const createCharacter = async (characterData: CharacterData) => {
-    if (!user) return;
 
-    try {
-      const charactersRef = collection(db, `users/${user.uid}/characters`);
-      const docRef = await addDoc(charactersRef, {
-        ...characterData,
-        createdAt: serverTimestamp(),
-        lastUsed: serverTimestamp(),
-      });
-      
-      const newCharacter = { ...characterData, id: docRef.id };
-      onCharacterSelect(newCharacter);
-      setShowCharacterForm(false);
-    } catch (error) {
-      console.error('Error creating character:', error);
-    }
-  };
-
-  const updateCharacter = async (characterData: CharacterData) => {
-    if (!user || !editingCharacter?.id) return;
-
-    try {
-      const characterRef = doc(db, `users/${user.uid}/characters`, editingCharacter.id);
-      await updateDoc(characterRef, {
-        ...characterData,
-        lastUsed: serverTimestamp(),
-      });
-      
-      const updatedCharacter = { ...characterData, id: editingCharacter.id };
-      onCharacterSelect(updatedCharacter);
-      setEditingCharacter(null);
-      setShowCharacterForm(false);
-    } catch (error) {
-      console.error('Error updating character:', error);
-    }
-  };
 
   const deleteCharacter = async (characterId: string) => {
     if (!user) return;
@@ -138,7 +102,7 @@ export default function CharacterSelector({
       await updateDoc(characterRef, {
         lastUsed: serverTimestamp(),
       });
-      
+
       onCharacterSelect(character);
     } catch (error) {
       console.error('Error selecting character:', error);
@@ -151,7 +115,7 @@ export default function CharacterSelector({
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
+
     if (days === 0) {
       return 'Today';
     } else if (days === 1) {
@@ -174,12 +138,9 @@ export default function CharacterSelector({
     setShowCharacterForm(true);
   };
 
-  const handleCharacterSubmit = (characterData: CharacterData) => {
-    if (editingCharacter) {
-      updateCharacter(characterData);
-    } else {
-      createCharacter(characterData);
-    }
+  const handleCloseForm = () => {
+    setShowCharacterForm(false);
+    setEditingCharacter(null);
   };
 
   if (isLoading) {
@@ -235,8 +196,8 @@ export default function CharacterSelector({
                 key={character.id}
                 className={cn(
                   "group relative p-3 sm:p-4 rounded-lg cursor-pointer transition-all duration-200 hover:bg-accent border touch-manipulation",
-                  selectedCharacterId === character.id 
-                    ? "bg-accent border-primary shadow-sm ring-1 ring-primary/20" 
+                  selectedCharacterId === character.id
+                    ? "bg-accent border-primary shadow-sm ring-1 ring-primary/20"
                     : "border-transparent hover:border-border"
                 )}
                 onClick={() => selectCharacter(character)}
@@ -247,7 +208,7 @@ export default function CharacterSelector({
                       {character.name.slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <h3 className="font-semibold text-sm truncate">
@@ -257,30 +218,30 @@ export default function CharacterSelector({
                         {character.age}
                       </Badge>
                     </div>
-                    
+
                     <div className="flex items-center gap-1 mb-2">
                       <Briefcase className="h-3 w-3 text-muted-foreground" />
                       <span className="text-xs text-muted-foreground truncate">
                         {character.profession}
                       </span>
                     </div>
-                    
+
                     <Badge variant="outline" className="text-xs mb-2">
                       {character.tone}
                     </Badge>
-                    
+
                     {character.description && (
                       <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
                         {character.description}
                       </p>
                     )}
-                    
+
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Clock className="h-3 w-3" />
                       <span>Last used {formatTime(character.lastUsed)}</span>
                     </div>
                   </div>
-                  
+
                   <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity">
                     <Button
                       variant="ghost"
@@ -293,7 +254,7 @@ export default function CharacterSelector({
                     >
                       <Edit className="h-3 w-3" />
                     </Button>
-                    
+
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -309,8 +270,8 @@ export default function CharacterSelector({
                         <AlertDialogHeader>
                           <AlertDialogTitle>Delete Character</AlertDialogTitle>
                           <AlertDialogDescription>
-                            Are you sure you want to delete {character.name}? 
-                            This will also delete all chat sessions with this character. 
+                            Are you sure you want to delete {character.name}?
+                            This will also delete all chat sessions with this character.
                             This action cannot be undone.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
@@ -341,9 +302,9 @@ export default function CharacterSelector({
               {editingCharacter ? 'Edit Character' : 'Create New Character'}
             </DialogTitle>
           </DialogHeader>
-          <CharacterForm 
-            onCharacterSubmit={handleCharacterSubmit}
-            initialData={editingCharacter || undefined}
+          <CharacterForm
+            character={editingCharacter}
+            onClose={handleCloseForm}
           />
         </DialogContent>
       </Dialog>

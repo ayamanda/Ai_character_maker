@@ -3,14 +3,27 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Paperclip, Smile } from "lucide-react";
 import { cn } from '@/lib/utils';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
   isLoading: boolean;
 }
 
+const EMOJI_CATEGORIES = {
+  'Smileys': ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳'],
+  'Gestures': ['👍', '👎', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💪', '🦾', '🦿', '🦵', '🦶'],
+  'Hearts': ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟'],
+  'Objects': ['💻', '📱', '⌚', '📷', '🎮', '🎧', '🎵', '🎶', '🔥', '💯', '✨', '⭐', '🌟', '💫', '🎉', '🎊', '🎈', '🎁', '🏆', '🥇', '🥈', '🥉'],
+};
+
 function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
   const [input, setInput] = useState('');
+  const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = () => {
@@ -39,6 +52,24 @@ function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
     }
   };
 
+  const insertEmoji = (emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const newValue = input.slice(0, start) + emoji + input.slice(end);
+    
+    setInput(newValue);
+    setIsEmojiOpen(false);
+    
+    // Focus back to textarea and set cursor position
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + emoji.length, start + emoji.length);
+    }, 0);
+  };
+
   return (
     <div className="relative">
       <div className="flex items-end gap-2 sm:gap-3 p-3 sm:p-4 bg-card rounded-2xl border border-border shadow-sm backdrop-blur-sm">
@@ -47,6 +78,7 @@ function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
           size="icon"
           className="h-8 w-8 sm:h-9 sm:w-9 text-muted-foreground hover:text-foreground transition-colors"
           disabled={isLoading}
+          title="Attach file (coming soon)"
         >
           <Paperclip className="h-4 w-4" />
         </Button>
@@ -66,14 +98,40 @@ function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
           />
         </div>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 sm:h-9 sm:w-9 text-muted-foreground hover:text-foreground transition-colors"
-          disabled={isLoading}
-        >
-          <Smile className="h-4 w-4" />
-        </Button>
+        <Popover open={isEmojiOpen} onOpenChange={setIsEmojiOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-9 sm:w-9 text-muted-foreground hover:text-foreground transition-colors"
+              disabled={isLoading}
+              title="Add emoji"
+            >
+              <Smile className="h-4 w-4" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-0" side="top" align="end">
+            <div className="max-h-64 overflow-y-auto">
+              {Object.entries(EMOJI_CATEGORIES).map(([category, emojis]) => (
+                <div key={category} className="p-3 border-b border-border last:border-b-0">
+                  <h4 className="text-xs font-medium text-muted-foreground mb-2">{category}</h4>
+                  <div className="grid grid-cols-8 gap-1">
+                    {emojis.map((emoji) => (
+                      <button
+                        key={emoji}
+                        onClick={() => insertEmoji(emoji)}
+                        className="p-1 hover:bg-muted rounded text-lg transition-colors"
+                        title={emoji}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
 
         <Button
           onClick={handleSend}
@@ -85,6 +143,7 @@ function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
               ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 scale-100 shadow-md"
               : "bg-muted text-muted-foreground scale-95"
           )}
+          title="Send message"
         >
           <Send className="h-4 w-4" />
         </Button>

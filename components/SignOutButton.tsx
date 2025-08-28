@@ -5,8 +5,13 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-const SignOutButton = () => {
+interface SignOutButtonProps {
+  className?: string;
+}
+
+const SignOutButton = ({ className }: SignOutButtonProps) => {
   const router = useRouter();
 
   const handleSignOut = async () => {
@@ -23,7 +28,7 @@ const SignOutButton = () => {
       onClick={handleSignOut} 
       variant="ghost" 
       size="sm"
-      className="gap-2 text-muted-foreground hover:text-foreground touch-manipulation"
+      className={cn("gap-2 text-muted-foreground hover:text-foreground touch-manipulation", className)}
     >
       <LogOut className="h-4 w-4" />
       <span className="hidden sm:inline">Sign Out</span>

@@ -169,12 +169,12 @@ function Chat() {
               if (data === '[DONE]') {
                 break;
               }
-              
+
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.content) {
                   accumulatedText += parsed.content;
-                  
+
                   // Update the streaming message in Firestore
                   await updateDoc(streamingMessageRef, {
                     text: accumulatedText,
@@ -190,7 +190,7 @@ function Chat() {
     } catch (error: any) {
       console.error('Error fetching AI response:', error);
       setError(error.message);
-      
+
       // If streaming failed and we have a partial message, clean it up
       if (streamingMessageRef && accumulatedText === '') {
         await deleteDoc(streamingMessageRef);
@@ -298,9 +298,8 @@ function Chat() {
     return messages.map((msg) => (
       <div
         key={msg.id}
-        className={`flex items-start gap-2 mb-4 ${
-          msg.uid === user?.uid ? 'flex-row-reverse' : ''
-        }`}
+        className={`flex items-start gap-2 mb-4 ${msg.uid === user?.uid ? 'flex-row-reverse' : ''
+          }`}
       >
         <Avatar className="h-8 w-8">
           <AvatarImage
@@ -314,11 +313,10 @@ function Chat() {
         <div
           className={`
                   p-3 rounded-lg max-w-[80%] shadow-sm
-                  ${
-                    msg.uid === user?.uid
-                      ? 'bg-gray-800 text-white ml-auto'
-                      : 'bg-gray-100 text-black mr-auto'
-                  }
+                  ${msg.uid === user?.uid
+              ? 'bg-gray-800 text-white ml-auto'
+              : 'bg-gray-100 text-black mr-auto'
+            }
                 `}
         >
           {msg.text}
@@ -363,8 +361,8 @@ function Chat() {
       )}
 
       {/* Alert for creating a character */}
-      
-        {showAlert && (
+
+      {showAlert && (
         <Alert variant="destructive" className="m-2 relative">
           <div className="absolute top-2 right-2">
             <Button
@@ -504,7 +502,10 @@ function Chat() {
           <DialogHeader>
             <DialogTitle>Modify Character</DialogTitle>
           </DialogHeader>
-          <CharacterForm onCharacterSubmit={handleCharacterUpdate} />
+          <CharacterForm
+            onClose={() => setShowCharacterForm(false)}
+            onCharacterSubmit={handleCharacterUpdate}
+          />
         </DialogContent>
       </Dialog>
     </div>
@@ -604,7 +605,7 @@ function Chat() {
       )}
 
       {/* Alert for creating a character */}
-        {showAlert && (
+      {showAlert && (
         <Alert variant="destructive" className="m-2 relative">
           <div className="absolute top-2 right-2">
             <Button
@@ -701,7 +702,10 @@ function Chat() {
           <DialogHeader>
             <DialogTitle>Modify Character</DialogTitle>
           </DialogHeader>
-          <CharacterForm onCharacterSubmit={handleCharacterUpdate} />
+          <CharacterForm
+            onClose={() => setShowCharacterForm(false)}
+            onCharacterSubmit={handleCharacterUpdate}
+          />
         </DialogContent>
       </Dialog>
     </div>

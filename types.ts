@@ -31,3 +31,51 @@ export interface ChatSession {
   createdAt: any;
   messageCount: number;
 }
+
+// Admin-related types
+export interface CustomClaims {
+  admin: boolean;
+  adminLevel: 'super' | 'moderator' | 'support';
+  blocked: boolean;
+  blockExpiry?: number; // timestamp
+}
+
+export interface AdminUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  isAdmin: boolean;
+  adminLevel: 'super' | 'moderator' | 'support';
+  isBlocked: boolean;
+  blockReason?: string;
+  blockExpiry?: Date;
+  createdAt: Date;
+  lastLogin: Date;
+  metadata: {
+    characterCount: number;
+    messageCount: number;
+    flaggedContent: number;
+  };
+  needsMetadataUpdate?: boolean; // Internal flag for background updates
+}
+
+export interface AdminCharacterView extends CharacterData {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  messageCount: number;
+  lastUsed: Date;
+  isFlagged: boolean;
+  flagReason?: string;
+  reportCount: number;
+}
+
+export interface AdminChatView extends ChatSession {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  isFlagged: boolean;
+  flagReason?: string;
+  lastActivity: Date;
+  totalMessages: number;
+}

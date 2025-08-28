@@ -38,6 +38,7 @@ import ChatInput from './ChatInput';
 import ChatHistory from './ChatHistory';
 import CharacterSelector from './CharacterSelector';
 import SignOutButton from '@/components/SignOutButton';
+import MessageContent from './MessageContent';
 import { cn } from '@/lib/utils';
 
 export default function ModernChatV2() {
@@ -48,6 +49,7 @@ export default function ModernChatV2() {
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isInitialized, setIsInitialized] = useState(false);
+    const [isStreaming, setIsStreaming] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Load the most recent character and session on mount
@@ -114,9 +116,16 @@ export default function ModernChatV2() {
         return () => unsubscribe();
     }, [user, currentSessionId]);
 
-    // Auto-scroll to bottom
+    // Auto-scroll to bottom with improved logic
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const scrollToBottom = () => {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        };
+
+        // Always scroll on new messages, with a slight delay for better UX
+        const timeoutId = setTimeout(scrollToBottom, 100);
+
+        return () => clearTimeout(timeoutId);
     }, [messages]);
 
     const createNewSession = async (character: CharacterData) => {
@@ -157,9 +166,10 @@ export default function ModernChatV2() {
         }
     };
 
-    const getAIResponse = async (userMessage: string) => {
-        if (!selectedCharacter || !user || !currentSessionId) {
-            console.error('Missing required data for AI response:', { selectedCharacter, user, currentSessionId });
+    const getAIResponse = async (userMessage: string, sessionId?: string) => {
+        const targetSessionId = sessionId || currentSessionId;
+        if (!selectedCharacter || !user || !targetSessionId) {
+            console.error('Missing required data for AI response:', { selectedCharacter, user, targetSessionId });
             return;
         }
 
@@ -202,7 +212,7 @@ export default function ModernChatV2() {
                 character: true,
             };
 
-            const messagesRef = collection(db, `users/${user.uid}/chatSessions/${currentSessionId}/messages`);
+            const messagesRef = collection(db, `users/${user.uid}/chatSessions/${targetSessionId}/messages`);
             streamingMessageRef = await addDoc(messagesRef, initialMessage);
             console.log('Created streaming message ref:', streamingMessageRef.id);
 
@@ -211,37 +221,55 @@ export default function ModernChatV2() {
 
             if (reader) {
                 console.log('Starting to read stream...');
+                setIsStreaming(true);
+                let isFirstChunk = true;
+
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) {
                         console.log('Stream reading completed');
+                        setIsStreaming(false);
                         break;
                     }
 
                     const chunk = decoder.decode(value);
-                    console.log('Received chunk:', chunk);
                     const lines = chunk.split('\n');
 
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
-                            const data = line.slice(6);
+                            const data = line.slice(6).trim();
                             if (data === '[DONE]') {
                                 console.log('Received DONE signal');
+                                setIsStreaming(false);
                                 break;
                             }
 
-                            try {
-                                const parsed = JSON.parse(data);
-                                console.log('Parsed data:', parsed);
-                                if (parsed.content) {
-                                    accumulatedText += parsed.content;
-                                    console.log('Accumulated text length:', accumulatedText.length);
-                                    await updateDoc(streamingMessageRef, {
-                                        text: accumulatedText,
-                                    });
+                            if (data) {
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.content) {
+                                        accumulatedText += parsed.content;
+
+                                        // Update the message in Firestore
+                                        await updateDoc(streamingMessageRef, {
+                                            text: accumulatedText,
+                                        });
+                                        console.log('Updated message with accumulated text length:', accumulatedText.length);
+
+                                        // Auto-scroll on first chunk to ensure visibility
+                                        if (isFirstChunk) {
+                                            isFirstChunk = false;
+                                            setTimeout(() => {
+                                                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                                            }, 100);
+                                        }
+                                    } else if (parsed.error) {
+                                        console.error('Stream error:', parsed.error);
+                                        throw new Error(parsed.error);
+                                    }
+                                } catch (e) {
+                                    console.warn('Failed to parse JSON:', data, e);
                                 }
-                            } catch (e) {
-                                console.warn('Failed to parse JSON:', data, e);
                             }
                         }
                     }
@@ -259,7 +287,7 @@ export default function ModernChatV2() {
                 accumulatedText = fallbackText;
             }
 
-            await updateSessionLastMessage(currentSessionId, accumulatedText.slice(0, 100));
+            await updateSessionLastMessage(targetSessionId, accumulatedText.slice(0, 100));
         } catch (error: any) {
             console.error('Error fetching AI response:', error);
             if (streamingMessageRef && accumulatedText === '') {
@@ -277,7 +305,7 @@ export default function ModernChatV2() {
                 };
 
                 try {
-                    const messagesRef = collection(db, `users/${user.uid}/chatSessions/${currentSessionId}/messages`);
+                    const messagesRef = collection(db, `users/${user.uid}/chatSessions/${targetSessionId}/messages`);
                     await addDoc(messagesRef, errorMessage);
                 } catch (e) {
                     console.error('Error adding error message:', e);
@@ -285,6 +313,7 @@ export default function ModernChatV2() {
             }
         } finally {
             setIsLoading(false);
+            setIsStreaming(false);
         }
     };
 
@@ -313,7 +342,7 @@ export default function ModernChatV2() {
             const messagesRef = collection(db, `users/${user.uid}/chatSessions/${sessionId}/messages`);
             await addDoc(messagesRef, newMessage);
             await updateSessionLastMessage(sessionId, messageText.slice(0, 100));
-            await getAIResponse(messageText);
+            await getAIResponse(messageText, sessionId);
         } catch (error: any) {
             console.error('Error adding message:', error);
         }
@@ -357,51 +386,65 @@ export default function ModernChatV2() {
         }
     };
 
-    const renderMessage = (msg: Message) => (
-        <div
-            key={msg.id}
-            className={cn(
-                "flex items-start gap-2 sm:gap-3 mb-4 sm:mb-6 group animate-in slide-in-from-bottom-2 duration-300",
-                msg.uid === user?.uid ? "flex-row-reverse" : ""
-            )}
-        >
-            <Avatar className="h-7 w-7 sm:h-8 sm:w-8 border-2 border-border flex-shrink-0">
-                <AvatarImage src={msg.photoURL || ''} alt={msg.displayName || ''} />
-                <AvatarFallback className={cn(
-                    "text-xs font-medium",
-                    msg.character ? "bg-gradient-to-br from-purple-500 to-pink-500 text-white" : "bg-primary text-primary-foreground"
-                )}>
-                    {msg.character ? <Bot className="h-3 w-3 sm:h-4 sm:w-4" /> : <User className="h-3 w-3 sm:h-4 sm:w-4" />}
-                </AvatarFallback>
-            </Avatar>
-
-            <div className={cn(
-                "flex flex-col max-w-[85%] sm:max-w-[80%] min-w-0",
-                msg.uid === user?.uid ? "items-end" : "items-start"
-            )}>
-                <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-medium text-muted-foreground truncate">
-                        {msg.character ? selectedCharacter?.name : msg.displayName}
-                    </span>
-                    {msg.character && (
-                        <Badge variant="secondary" className="text-xs flex-shrink-0">
-                            <Sparkles className="h-3 w-3 mr-1" />
-                            AI
-                        </Badge>
-                    )}
-                </div>
+    const renderMessage = (msg: Message) => {
+        console.log('🔥 renderMessage called with:', {
+            id: msg.id,
+            text: msg.text,
+            textLength: msg.text?.length,
+            hasStars: msg.text?.includes?.('**'),
+            uid: msg.uid,
+            character: msg.character
+        });
+        return (
+            <div
+                key={msg.id}
+                className={cn(
+                    "flex items-start gap-2 sm:gap-3 mb-4 sm:mb-6 group animate-in slide-in-from-bottom-2 duration-300",
+                    msg.uid === user?.uid ? "flex-row-reverse" : ""
+                )}
+            >
+                <Avatar className="h-7 w-7 sm:h-8 sm:w-8 border-2 border-border flex-shrink-0">
+                    <AvatarImage src={msg.photoURL || ''} alt={msg.displayName || ''} />
+                    <AvatarFallback className={cn(
+                        "text-xs font-medium",
+                        msg.character ? "bg-gradient-to-br from-purple-500 to-pink-500 text-white" : "bg-primary text-primary-foreground"
+                    )}>
+                        {msg.character ? <Bot className="h-3 w-3 sm:h-4 sm:w-4" /> : <User className="h-3 w-3 sm:h-4 sm:w-4" />}
+                    </AvatarFallback>
+                </Avatar>
 
                 <div className={cn(
-                    "p-3 sm:p-4 rounded-2xl shadow-sm border transition-all duration-200",
-                    msg.uid === user?.uid
-                        ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-br-md"
-                        : "bg-card text-card-foreground rounded-bl-md hover:shadow-md"
+                    "flex flex-col max-w-[85%] sm:max-w-[80%] min-w-0",
+                    msg.uid === user?.uid ? "items-end" : "items-start"
                 )}>
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.text}</p>
+                    <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-medium text-muted-foreground truncate">
+                            {msg.character ? selectedCharacter?.name : msg.displayName}
+                        </span>
+                        {msg.character && (
+                            <Badge variant="secondary" className="text-xs flex-shrink-0">
+                                <Sparkles className="h-3 w-3 mr-1" />
+                                AI
+                            </Badge>
+                        )}
+                    </div>
+
+                    <div className={cn(
+                        "p-3 sm:p-4 rounded-2xl shadow-sm border transition-all duration-200",
+                        msg.uid === user?.uid
+                            ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-br-md"
+                            : "bg-card text-card-foreground rounded-bl-md hover:shadow-md"
+                    )}>
+                        
+                        <MessageContent
+                            content={msg.text}
+                            isUser={msg.uid === user?.uid}
+                        />
+                    </div>
                 </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     if (!user) {
         return <div>Please sign in to continue</div>;
@@ -419,6 +462,10 @@ export default function ModernChatV2() {
             </div>
         );
     }
+
+    // Debug logging for messages
+    console.log('🚨 MAIN COMPONENT RENDER - Messages:', messages.length);
+    console.log('� MAIsN COMPONENT RENDER - Messages array:', messages);
 
     return (
         <div className="flex h-screen bg-background">
@@ -517,89 +564,102 @@ export default function ModernChatV2() {
                 </div>
 
                 {/* Messages Area */}
-                <ScrollArea className="flex-1 p-3 sm:p-6">
-                    {!selectedCharacter ? (
-                        <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                            <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-full p-4 sm:p-6 mb-4 sm:mb-6 shadow-lg animate-pulse">
-                                <Bot className="h-8 w-8 sm:h-12 sm:w-12 text-white" />
-                            </div>
-                            <h3 className="text-xl sm:text-2xl font-bold mb-2 bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
-                                Welcome to AI Character Chat
-                            </h3>
-                            <p className="text-muted-foreground mb-4 sm:mb-6 max-w-md text-sm sm:text-base">
-                                Select a character from the sidebar or create a new one to start chatting.
-                            </p>
-                            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
-                                <Button
-                                    onClick={() => setIsMobileMenuOpen(true)}
-                                    className="lg:hidden gap-2"
-                                    size="sm"
-                                >
-                                    <Bot className="h-4 w-4" />
-                                    Browse Characters
-                                </Button>
-                            </div>
-                        </div>
-                    ) : messages.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                            <Avatar className="h-16 w-16 sm:h-20 sm:w-20 mb-4 border-4 border-border shadow-lg">
-                                <AvatarFallback className="bg-gradient-to-br from-purple-500 to-pink-500 text-white text-lg sm:text-2xl">
-                                    {selectedCharacter.name.slice(0, 2).toUpperCase()}
-                                </AvatarFallback>
-                            </Avatar>
-                            <h3 className="text-lg sm:text-xl font-semibold mb-2">
-                                Chat with {selectedCharacter.name}
-                            </h3>
-                            <p className="text-muted-foreground mb-4 text-sm sm:text-base">
-                                Start a conversation with your AI character
-                            </p>
-                            <div className="flex flex-wrap justify-center gap-2 mb-4">
-                                <Badge variant="outline" className="text-xs">
-                                    {selectedCharacter.profession}
-                                </Badge>
-                                <Badge variant="outline" className="text-xs">
-                                    {selectedCharacter.tone}
-                                </Badge>
-                                <Badge variant="outline" className="text-xs">
-                                    Age {selectedCharacter.age}
-                                </Badge>
-                            </div>
-                            {selectedCharacter.description && (
-                                <div className="bg-card/50 rounded-lg p-4 max-w-md border">
-                                    <p className="text-sm text-muted-foreground">
-                                        {selectedCharacter.description}
-                                    </p>
+                <div className="flex-1 overflow-hidden">
+                    <ScrollArea className="h-full p-3 sm:p-6">
+                        {!selectedCharacter ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center px-4">
+                                <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-full p-4 sm:p-6 mb-4 sm:mb-6 shadow-lg animate-pulse">
+                                    <Bot className="h-8 w-8 sm:h-12 sm:w-12 text-white" />
                                 </div>
-                            )}
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            {messages.map(renderMessage)}
+                                <h3 className="text-xl sm:text-2xl font-bold mb-2 bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                                    Welcome to AI Character Chat
+                                </h3>
+                                <p className="text-muted-foreground mb-4 sm:mb-6 max-w-md text-sm sm:text-base">
+                                    Select a character from the sidebar or create a new one to start chatting.
+                                </p>
+                                <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
+                                    <Button
+                                        onClick={() => setIsMobileMenuOpen(true)}
+                                        className="lg:hidden gap-2"
+                                        size="sm"
+                                    >
+                                        <Bot className="h-4 w-4" />
+                                        Browse Characters
+                                    </Button>
+                                </div>
+                            </div>
+                        ) : messages.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center px-4">
+                                <Avatar className="h-16 w-16 sm:h-20 sm:w-20 mb-4 border-4 border-border shadow-lg">
+                                    <AvatarFallback className="bg-gradient-to-br from-purple-500 to-pink-500 text-white text-lg sm:text-2xl">
+                                        {selectedCharacter.name.slice(0, 2).toUpperCase()}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <h3 className="text-lg sm:text-xl font-semibold mb-2">
+                                    Chat with {selectedCharacter.name}
+                                </h3>
+                                <p className="text-muted-foreground mb-4 text-sm sm:text-base">
+                                    Start a conversation with your AI character
+                                </p>
+                                <div className="flex flex-wrap justify-center gap-2 mb-4">
+                                    <Badge variant="outline" className="text-xs">
+                                        {selectedCharacter.profession}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-xs">
+                                        {selectedCharacter.tone}
+                                    </Badge>
+                                    <Badge variant="outline" className="text-xs">
+                                        Age {selectedCharacter.age}
+                                    </Badge>
+                                </div>
+                                {selectedCharacter.description && (
+                                    <div className="bg-card/50 rounded-lg p-4 max-w-md border">
+                                        <p className="text-sm text-muted-foreground">
+                                            {selectedCharacter.description}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {messages.map(renderMessage)}
 
-                            {isLoading && (
-                                <div className="flex items-start gap-2 sm:gap-3 mb-4 sm:mb-6 animate-in slide-in-from-bottom-2 duration-300">
-                                    <Avatar className="h-7 w-7 sm:h-8 sm:w-8 border-2 border-border">
-                                        <AvatarFallback className="bg-gradient-to-br from-purple-500 to-pink-500 text-white">
-                                            <Bot className="h-3 w-3 sm:h-4 sm:w-4" />
-                                        </AvatarFallback>
-                                    </Avatar>
-                                    <div className="bg-card border rounded-2xl rounded-bl-md p-3 sm:p-4 shadow-sm">
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex gap-1">
-                                                <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"></div>
-                                                <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                                <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                {isLoading && !isStreaming && messages.length > 0 && !messages[messages.length - 1]?.character && (
+                                    <div className="flex items-start gap-2 sm:gap-3 mb-4 sm:mb-6 animate-in slide-in-from-bottom-2 duration-300">
+                                        <Avatar className="h-7 w-7 sm:h-8 sm:w-8 border-2 border-border">
+                                            <AvatarFallback className="bg-gradient-to-br from-purple-500 to-pink-500 text-white">
+                                                <Bot className="h-3 w-3 sm:h-4 sm:w-4" />
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <div className="bg-card border rounded-2xl rounded-bl-md p-3 sm:p-4 shadow-sm">
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex gap-1">
+                                                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"></div>
+                                                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                                </div>
+                                                <span className="text-xs text-muted-foreground">Thinking...</span>
                                             </div>
-                                            <span className="text-xs text-muted-foreground">Thinking...</span>
                                         </div>
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                            <div ref={messagesEndRef} />
-                        </div>
-                    )}
-                </ScrollArea>
+                                {isStreaming && (
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+                                        <Avatar className="h-5 w-5 border border-border">
+                                            <AvatarFallback className="bg-gradient-to-br from-purple-500 to-pink-500 text-white text-xs">
+                                                <Bot className="h-2.5 w-2.5" />
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <span>{selectedCharacter?.name} is typing...</span>
+                                    </div>
+                                )}
+
+                                <div ref={messagesEndRef} />
+                            </div>
+                        )}
+                    </ScrollArea>
+                </div>
 
                 {/* Chat Input */}
                 {selectedCharacter && (

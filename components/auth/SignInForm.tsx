@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+import { updateLastLogin } from '@/lib/admin';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +14,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useRouter } from 'next/navigation';
-import { Link } from 'lucide-react';
 
 function SignInForm() {
   const [email, setEmail] = useState('');
@@ -23,7 +23,12 @@ function SignInForm() {
 
   const handleSignIn = async () => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      // Update last login and ensure user exists in adminUsers collection
+      await updateLastLogin(user.uid, user.email || '', user.displayName || '');
+      
       router.push('/chat');
     } catch (error: any) {
       setError(error.message);
@@ -33,8 +38,13 @@ function SignInForm() {
   const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
-      router.push('/chat');
+      const userCredential = await signInWithPopup(auth, provider);
+      const user = userCredential.user;
+      
+      // Update last login and ensure user exists in adminUsers collection
+      await updateLastLogin(user.uid, user.email || '', user.displayName || '');
+      
+      router.push('/');
     } catch (error: any) {
       setError(error.message);
     }
