@@ -1,9 +1,5 @@
-import Chat from '@/components/chat/Chat';
+import ModernChatV2 from '@/components/chat/ModernChatV2';
 
 export default function ChatPage() {
-  return (
-    <div className="h-screen p-4">
-      <Chat />
-    </div>
-  );
+  return <ModernChatV2 />;
 }

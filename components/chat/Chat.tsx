@@ -9,6 +9,7 @@ import {
   serverTimestamp,
   getDocs,
   deleteDoc,
+  updateDoc,
 } from 'firebase/firestore';
 import { useMediaQuery } from 'react-responsive';
 import { useAuthState } from 'react-firebase-hooks/auth';
@@ -111,7 +112,7 @@ function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Function to get AI response
+  // Function to get AI response with streaming
   const getAIResponse = async (userMessage: string) => {
     if (!characterData || !user) {
       setError('Character data or user not available.');
@@ -119,6 +120,9 @@ function Chat() {
     }
 
     setIsLoading(true);
+    let streamingMessageRef: any = null;
+    let accumulatedText = '';
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -131,19 +135,12 @@ function Chat() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(
-          errorData.error ||
-            `HTTP error! status: ${response.status} - ${response.statusText}`
-        );
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      const aiResponse =
-        data.choices[0].message?.content || 'No response from AI';
-
-      const newMessage: Omit<Message, 'id'> = {
-        text: aiResponse,
+      // Create initial streaming message
+      const initialMessage: Omit<Message, 'id'> = {
+        text: '',
         createdAt: serverTimestamp(),
         uid: 'ai',
         photoURL: null,
@@ -152,10 +149,52 @@ function Chat() {
       };
 
       const messagesRef = collection(db, `users/${user.uid}/messages`);
-      await addDoc(messagesRef, newMessage);
+      streamingMessageRef = await addDoc(messagesRef, initialMessage);
+
+      // Process streaming response
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') {
+                break;
+              }
+              
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.content) {
+                  accumulatedText += parsed.content;
+                  
+                  // Update the streaming message in Firestore
+                  await updateDoc(streamingMessageRef, {
+                    text: accumulatedText,
+                  });
+                }
+              } catch (e) {
+                // Skip invalid JSON
+              }
+            }
+          }
+        }
+      }
     } catch (error: any) {
       console.error('Error fetching AI response:', error);
       setError(error.message);
+      
+      // If streaming failed and we have a partial message, clean it up
+      if (streamingMessageRef && accumulatedText === '') {
+        await deleteDoc(streamingMessageRef);
+      }
     } finally {
       setIsLoading(false);
     }

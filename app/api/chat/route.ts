@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Groq from 'groq-sdk';
+import OpenAI from 'openai';
 
-const client = new Groq({
-  apiKey: process.env.GROQ_API_KEY || '', // Or throw an error if the key is missing
+const openai = new OpenAI({
+  apiKey: process.env.GEMINI_API_KEY || '',
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
 });
 
 export async function POST(req: NextRequest) {
   try {
     const { userMessage, characterData, messages } = await req.json();
+    console.log('API received request:', { userMessage, characterData: characterData?.name, messagesCount: messages?.length });
+
+    // Validate required fields
+    if (!userMessage || !characterData) {
+      console.error('Missing required fields:', { userMessage: !!userMessage, characterData: !!characterData });
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
 
     const systemPrompt = `
       You are now embodying the persona of ${characterData.name}, a ${characterData.age}-year-old ${characterData.profession}. 
@@ -43,24 +51,62 @@ export async function POST(req: NextRequest) {
       Your primary goal is to be a believable, engaging, and efficient conversational partner, embodying ${characterData.name} as authentically as possible. Prioritize conciseness and, if applicable, use emojis thoughtfully to enhance the interaction.
     `;
 
+    // Convert messages to OpenAI format
     const chatMessages = [
       { role: 'system', content: systemPrompt },
       ...messages.filter((msg: { text: any; }) => msg.text).map((msg: { character: any; text: any; }) => ({
         role: msg.character ? 'assistant' : 'user',
         content: msg.text,
-        name: msg.character ? characterData.name.replace(/\s+/g, '_') : 'user',
       })),
-      { role: 'user', content: userMessage, name: 'user' },
+      { role: 'user', content: userMessage },
     ];
 
-    const chatCompletion = await client.chat.completions.create({
+    console.log('Prepared chat messages:', chatMessages.length, 'messages');
+
+    // Generate streaming response using OpenAI-compatible API
+    console.log('Calling OpenAI API...');
+    const stream = await openai.chat.completions.create({
+      model: 'gemini-2.0-flash-exp',
       messages: chatMessages,
-      model: 'llama-3.1-8b-instant',
-      temperature: 0.7, // Adjust as needed
-      max_tokens: 256, // Adjust as needed
+      temperature: 0.7,
+      max_tokens: 256,
+      stream: true,
+    });
+    console.log('OpenAI API call successful, starting stream...');
+
+    // Create a ReadableStream for streaming response
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          console.log('Starting stream processing...');
+          let chunkCount = 0;
+          for await (const chunk of stream) {
+            chunkCount++;
+            const content = chunk.choices[0]?.delta?.content || '';
+            console.log(`Chunk ${chunkCount}:`, content);
+            if (content) {
+              const data = JSON.stringify({ content });
+              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+            }
+          }
+          console.log(`Stream completed with ${chunkCount} chunks`);
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        } catch (error) {
+          console.error('Stream processing error:', error);
+          controller.error(error);
+        }
+      },
     });
 
-    return NextResponse.json(chatCompletion);
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   } catch (error) {
     console.error('Error in API route:', error);
     return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });

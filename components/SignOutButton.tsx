@@ -18,7 +18,17 @@ const SignOutButton = () => {
     }
   };
 
-  return <Button onClick={handleSignOut}><LogOut/> Sign Out</Button>;
+  return (
+    <Button 
+      onClick={handleSignOut} 
+      variant="ghost" 
+      size="sm"
+      className="gap-2 text-muted-foreground hover:text-foreground touch-manipulation"
+    >
+      <LogOut className="h-4 w-4" />
+      <span className="hidden sm:inline">Sign Out</span>
+    </Button>
+  );
 };
 
 export default SignOutButton;
