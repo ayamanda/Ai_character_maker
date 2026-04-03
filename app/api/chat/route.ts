@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || '',
 });
@@ -71,7 +73,7 @@ Your primary goal is to be a believable, engaging, and efficient conversational 
     // Generate streaming response using the new SDK
     console.log('Calling Gemini API for streaming response...');
     const response = await ai.models.generateContentStream({
-      model: 'gemini-2.5-flash',
+      model: GEMINI_MODEL,
       contents: conversationHistory,
       config: {
         systemInstruction,
