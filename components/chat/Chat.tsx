@@ -403,7 +403,8 @@ function Chat() {
       <div className="p-4 border-t border-gray-200 bg-white">
         <ChatInput
           onSendMessage={handleSendMessage}
-          isLoading={isLoading}
+          onStop={() => {}}
+          streamState={isLoading ? 'thinking' : 'idle'}
         />
       </div>
 
@@ -646,7 +647,8 @@ function Chat() {
       <div className="p-4 border-t border-gray-200">
         <ChatInput
           onSendMessage={handleSendMessage}
-          isLoading={isLoading}
+          onStop={() => {}}
+          streamState={isLoading ? 'thinking' : 'idle'}
         />
       </div>
 

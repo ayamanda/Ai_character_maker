@@ -23,6 +23,12 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   ArrowLeft,
   Trash2,
   Sparkles,
@@ -30,9 +36,11 @@ import {
   User,
   History as HistoryIcon,
   MessageCircle,
+  Headphones,
 } from 'lucide-react';
 import ChatInput from '@/components/chat/ChatInput';
 import MessageContent from '@/components/chat/MessageContent';
+import LiveModePanel from '@/components/chat/LiveModePanel';
 import { cn } from '@/lib/utils';
 
 interface ChatTabProps {
@@ -53,6 +61,7 @@ export default function ChatTab({
   const [isLoading, setIsLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [isLiveModeOpen, setIsLiveModeOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const historyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isDesktop = useMediaQuery({ minWidth: 1024 });
@@ -422,6 +431,18 @@ export default function ChatTab({
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Live Mode toggle */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsLiveModeOpen(true)}
+                disabled={isLoading}
+                className="text-purple-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30"
+                title="Live voice mode"
+              >
+                <Headphones className="h-4 w-4" />
+              </Button>
+
               {/* History Panel Toggle */}
               <Button
                 variant="ghost"
@@ -522,7 +543,8 @@ export default function ChatTab({
         <div className="border-t border-border bg-card/50 backdrop-blur-sm p-4">
           <ChatInput
             onSendMessage={handleSendMessage}
-            isLoading={isLoading}
+            onStop={() => {}}
+            streamState={isLoading ? 'thinking' : 'idle'}
           />
         </div>
       </div>
@@ -648,6 +670,31 @@ export default function ChatTab({
           </ScrollArea>
         </SheetContent>
       </Sheet>
+
+      {/* Live Mode Dialog */}
+      <Dialog open={isLiveModeOpen} onOpenChange={setIsLiveModeOpen}>
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-0">
+            <DialogTitle className="flex items-center gap-2">
+              <span className="bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                Live Voice Mode
+              </span>
+              <span className="text-muted-foreground text-sm font-normal">
+                — {selectedCharacter.name}
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="h-[480px]">
+            <LiveModePanel
+              characterData={selectedCharacter}
+              onTranscript={(text, role) => {
+                console.debug('[LiveMode transcript]', role, text);
+              }}
+              onClose={() => setIsLiveModeOpen(false)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

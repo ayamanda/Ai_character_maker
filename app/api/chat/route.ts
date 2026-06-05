@@ -1,130 +1,297 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
+import {
+  GoogleGenAI,
+  HarmCategory,
+  HarmBlockThreshold,
+  type Content,
+  type Part,
+} from '@google/genai';
+import { CharacterData, Message, SSEEvent } from '@/types';
+import { getToolDeclarations, executeTool } from '@/lib/tools/registry';
+import { getOrCreatePersonaCache } from '@/lib/cache/persona-cache';
+import { buildSystemInstruction } from '@/lib/buildSystemInstruction';
+import { extractResponseText } from '@/lib/gemini/response-text';
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+// ─── Config ───────────────────────────────────────────────────────────────────
+
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-preview-04-17';
+const ENABLE_TOOLS = process.env.ENABLE_TOOLS !== 'false'; // opt-out via env
+const MAX_TOOL_ROUNDS = 5; // guard against infinite loops
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || '',
 });
 
-export async function POST(req: NextRequest) {
-  try {
-    const { userMessage, characterData, messages } = await req.json();
-    console.log('API received request:', { userMessage, characterData: characterData?.name, messagesCount: messages?.length });
+// ─── Safety Settings ─────────────────────────────────────────────────────────
 
-    // Validate required fields
+const CHAT_SAFETY_SETTINGS = [
+  {
+    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+  },
+];
+
+// ─── SSE Helpers ──────────────────────────────────────────────────────────────
+
+const encoder = new TextEncoder();
+
+function encodeSSE(event: SSEEvent): Uint8Array {
+  return encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+// ─── POST /api/chat ───────────────────────────────────────────────────────────
+
+export async function POST(req: NextRequest) {
+  const startTime = Date.now();
+  const abortController = new AbortController();
+  req.signal.addEventListener('abort', () => abortController.abort());
+
+  try {
+    const body = await req.json() as {
+      userMessage: string;
+      characterData: CharacterData;
+      messages: Message[];
+      enableTools?: boolean;
+      turnId?: string;
+    };
+
+    const { userMessage, characterData, messages, enableTools, turnId: _turnId } = body;
+
     if (!userMessage || !characterData) {
-      console.error('Missing required fields:', { userMessage: !!userMessage, characterData: !!characterData });
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Missing required fields: userMessage, characterData' },
+        { status: 400 }
+      );
     }
 
-    const systemInstruction = `You are now embodying the persona of ${characterData.name}, a ${characterData.age}-year-old ${characterData.profession}.
-Your communication style should strictly adhere to a ${characterData.tone} tone, reflecting the unique characteristics and background described in your persona.
+    const systemInstruction = buildSystemInstruction(characterData);
+    const useTools = ENABLE_TOOLS && (enableTools !== false);
 
-**Key Persona Traits:**
-- **Name:** ${characterData.name}
-- **Age:** ${characterData.age}
-- **Profession:** ${characterData.profession}
-- **Tone:** ${characterData.tone}
-- **Description:** ${characterData.description || 'No additional description provided.'}
+    // Try to get/create a persona cache for this character (Phase 5)
+    // Falls back to null gracefully if below token threshold or API fails.
+    const cachedContent = await getOrCreatePersonaCache(characterData).catch(() => null);
 
-**Instructions for Interaction:**
-1. **Maintain Persona:** Consistently act and respond as ${characterData.name}. Your responses should be deeply rooted in the persona's background, profession, and defined tone.
-2. **Emulate Speech Patterns:** Adopt speech mannerisms, vocabulary, and phrasing typical of someone with your persona's background.
-3. **Incorporate Background Knowledge:** Utilize the knowledge base associated with your profession to inform your responses.
-4. **Reflect Emotional Tone:** Your designated tone (${characterData.tone}) should be evident in your emotional expressions and reactions.
-5. **Develop Persona's Opinions:** Based on your persona's description, develop and express opinions, preferences, and viewpoints that align with their background and experiences.
-6. **Memory and Context:** Remember previous interactions in this conversation. Refer back to earlier topics or comments to maintain continuity and demonstrate a coherent personality.
-
-**Crucial Guidelines for Enhanced Interaction:**
-- **Conciseness:** Strive for brevity and clarity in your responses. Be informative but avoid unnecessary elaboration.
-- **Emoji Usage:** If your tone is 'friendly', enhance your responses with appropriate emojis to add warmth and expressiveness.
-- **Formatting:** Use proper markdown formatting to enhance readability:
-  - **Bold text** for emphasis using **text**
-  - *Italic text* for subtle emphasis using *text*
-  - \`inline code\` for technical terms, variables, or short code snippets
-  - \`\`\`language for multi-line code blocks with proper language specification
-  - # Headers for organizing longer responses
-  - - Bullet points for lists
-  - 1. Numbered lists for sequential items
-  - > Blockquotes for important notes or quotes
-- **Code Blocks:** Always use proper markdown code blocks with language specification (e.g., \`\`\`javascript, \`\`\`python, \`\`\`bash)
-- **Structure:** For longer responses, use headers and lists to organize information clearly
-
-**Important Reminder:**
-Your primary goal is to be a believable, engaging, and efficient conversational partner, embodying ${characterData.name} as authentically as possible. Always use markdown formatting to make your responses visually appealing and easy to read.`;
-
-    // Build conversation history in the proper format
-    const conversationHistory = messages
-      .filter((msg: { text: any; }) => msg.text)
-      .map((msg: { character: any; text: any; }) => ({
+    // Build initial conversation history
+    const conversationHistory: Content[] = messages
+      .filter((msg) => msg.text?.trim())
+      .map((msg): Content => ({
         role: msg.character ? 'model' : 'user',
-        parts: [{ text: msg.text }]
+        parts: [{ text: msg.text }],
       }));
 
-    // Add the current user message
     conversationHistory.push({
       role: 'user',
-      parts: [{ text: userMessage }]
+      parts: [{ text: userMessage }],
     });
 
-    console.log('Prepared conversation history for Gemini API');
+    // ── Streaming ReadableStream ──────────────────────────────────────────────
 
-    // Generate streaming response using the new SDK
-    console.log('Calling Gemini API for streaming response...');
-    const response = await ai.models.generateContentStream({
-      model: GEMINI_MODEL,
-      contents: conversationHistory,
-      config: {
-        systemInstruction,
-        temperature: 0.7,
-      },
-    });
-
-    // Create a ReadableStream for streaming response
-    const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
+        const enqueue = (event: SSEEvent) => {
+          if (!abortController.signal.aborted) {
+            controller.enqueue(encodeSSE(event));
+          }
+        };
+
         try {
-          console.log('Starting stream processing...');
-          let chunkCount = 0;
+          enqueue({ type: 'status', state: 'thinking' });
 
-          for await (const chunk of response) {
-            chunkCount++;
-            const chunkText = chunk.text;
-            console.log(`Chunk ${chunkCount}:`, chunkText);
+          // ── Agentic loop: model → tool → model (max MAX_TOOL_ROUNDS) ───────
+          let history: Content[] = [...conversationHistory];
+          let promptTokens = 0;
+          let completionTokens = 0;
+          let cachedTokens = 0;
+          let toolRound = 0;
 
-            if (chunkText) {
-              const data = JSON.stringify({ content: chunkText });
-              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+          while (toolRound <= MAX_TOOL_ROUNDS) {
+            if (abortController.signal.aborted) {
+              enqueue({ type: 'status', state: 'cancelled' });
+              controller.close();
+              return;
             }
+
+            // ── Step 1: Initial generateContent (non-streaming for tool detection) ──
+            if (useTools && toolRound === 0) {
+              const nonStreamResp = await ai.models.generateContent({
+                model: GEMINI_MODEL,
+                contents: history,
+                config: {
+                  // Use cached persona if available, otherwise use systemInstruction directly
+                  ...(cachedContent ? { cachedContent } : { systemInstruction }),
+                  temperature: 0.7,
+                  safetySettings: CHAT_SAFETY_SETTINGS,
+                  tools: [{ functionDeclarations: getToolDeclarations() }],
+                },
+              });
+
+              // Capture token usage
+              if (nonStreamResp.usageMetadata) {
+                promptTokens += nonStreamResp.usageMetadata.promptTokenCount ?? 0;
+                completionTokens += nonStreamResp.usageMetadata.candidatesTokenCount ?? 0;
+                cachedTokens += nonStreamResp.usageMetadata.cachedContentTokenCount ?? 0;
+              }
+
+              const candidate = nonStreamResp.candidates?.[0];
+              const functionCalls = candidate?.content?.parts?.filter(
+                (p: Part) => p.functionCall
+              );
+
+              if (functionCalls && functionCalls.length > 0) {
+                // ── Step 2: Execute tool calls ────────────────────────────────
+                enqueue({ type: 'status', state: 'tool-running' });
+
+                // Append model's tool-call message to history
+                history.push({
+                  role: 'model',
+                  parts: candidate!.content!.parts,
+                });
+
+                const functionResponseParts: Part[] = [];
+
+                for (const part of functionCalls) {
+                  const callId = part.functionCall!.id ?? `call-${Date.now()}`;
+                  const name = part.functionCall!.name!;
+                  const args = (part.functionCall!.args ?? {}) as Record<string, unknown>;
+
+                  enqueue({
+                    type: 'tool_call',
+                    callId,
+                    name,
+                    args,
+                  });
+
+                  const toolStart = Date.now();
+                  const result = await executeTool(name, args, { characterData });
+                  const durationMs = Date.now() - toolStart;
+
+                  enqueue({
+                    type: 'tool_result',
+                    callId,
+                    name,
+                    result,
+                    durationMs,
+                  });
+
+                  functionResponseParts.push({
+                    functionResponse: {
+                      id: callId,
+                      name,
+                      response: { result },
+                    },
+                  });
+                }
+
+                // Append tool results to history
+                history.push({ role: 'user', parts: functionResponseParts });
+                toolRound++;
+                // Loop again to get final text response
+                continue;
+              }
+
+              // No tool calls — stream the text response directly
+              // Fall through to streaming below
+            }
+
+            // ── Step 3: Stream the final text response ─────────────────────────
+            enqueue({ type: 'status', state: 'responding' });
+
+            const streamResp = await ai.models.generateContentStream({
+              model: GEMINI_MODEL,
+              contents: history,
+              config: {
+                // Use cached persona if available, otherwise use systemInstruction directly
+                ...(cachedContent ? { cachedContent } : { systemInstruction }),
+                temperature: 0.7,
+                safetySettings: CHAT_SAFETY_SETTINGS,
+                // No tool declarations on final streaming pass to avoid more calls
+              },
+            });
+
+            for await (const chunk of streamResp) {
+              if (abortController.signal.aborted) {
+                enqueue({ type: 'status', state: 'cancelled' });
+                controller.close();
+                return;
+              }
+
+              const delta = extractResponseText(chunk);
+              if (delta) {
+                enqueue({ type: 'content', delta });
+              }
+
+              if (chunk.usageMetadata) {
+                promptTokens += chunk.usageMetadata.promptTokenCount ?? 0;
+                completionTokens += chunk.usageMetadata.candidatesTokenCount ?? 0;
+                cachedTokens += chunk.usageMetadata.cachedContentTokenCount ?? 0;
+              }
+            }
+
+            // Done with text streaming
+            break;
           }
 
-          console.log(`Stream completed with ${chunkCount} chunks`);
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          enqueue({ type: 'status', state: 'done' });
+          enqueue({
+            type: 'meta',
+            promptTokens,
+            completionTokens,
+            cachedTokens,
+            durationMs: Date.now() - startTime,
+          });
+
           controller.close();
-        } catch (error) {
-          console.error('Stream processing error:', error);
-          const errorData = JSON.stringify({ error: 'Stream processing failed' });
-          controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } catch (error: any) {
+          if (abortController.signal.aborted || error?.name === 'AbortError') {
+            enqueue({ type: 'status', state: 'cancelled' });
+            controller.close();
+            return;
+          }
+
+          console.error('[chat/route] Stream error:', error);
+
+          const isSafetyBlock =
+            error?.message?.includes('SAFETY') || error?.message?.includes('blocked');
+
+          enqueue({
+            type: 'error',
+            message: isSafetyBlock
+              ? 'Response blocked by safety filters. Try rephrasing your message.'
+              : 'An error occurred while generating the response.',
+            code: isSafetyBlock ? 'SAFETY_BLOCK' : 'STREAM_ERROR',
+          });
+          enqueue({ type: 'status', state: 'error' });
           controller.close();
         }
+      },
+
+      cancel() {
+        abortController.abort();
       },
     });
 
     return new Response(readable, {
       headers: {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
       },
     });
-  } catch (error) {
-    console.error('Error in API route:', error);
+  } catch (error: any) {
+    console.error('[chat/route] Unhandled error:', error);
     return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });
   }
 }

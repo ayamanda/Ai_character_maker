@@ -1,18 +1,5 @@
 // app/api/admin/set-claims/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuth } from 'firebase-admin/auth';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-
-// Initialize Firebase Admin SDK
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    }),
-  });
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,10 +12,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const auth = getAuth();
+    const { adminAuth, isAdminSDKAvailable, getInitializationError } = await import(
+      '@/lib/firebase-admin'
+    );
+
+    if (!isAdminSDKAvailable()) {
+      const initError = getInitializationError();
+      return NextResponse.json(
+        {
+          error: 'Firebase Admin SDK not configured',
+          details: initError,
+        },
+        { status: 500 }
+      );
+    }
     
     // Set custom claims
-    await auth.setCustomUserClaims(uid, {
+    await adminAuth.setCustomUserClaims(uid, {
       admin: isAdmin,
       adminLevel: adminLevel || 'support',
       blocked: isBlocked || false,
